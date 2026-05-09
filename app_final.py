@@ -23,13 +23,14 @@ from concurrent.futures import ThreadPoolExecutor
 # ──────────────────────────────────────────────
 # ★ KIS API 설정
 # ──────────────────────────────────────────────
-KIS_APP_KEY    = "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ"
-KIS_APP_SECRET = "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ"
-KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"  
+KIS_APP_KEY    = "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN"
+KIS_APP_SECRET = "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN"
+KIS_BASE_URL   = "https://openapivts.koreainvestment.com:29443"
+# KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"  # 실전
 
 _KIS_ENABLED = (
-    KIS_APP_KEY != "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ" and
-    KIS_APP_SECRET != "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ" and
+    KIS_APP_KEY != "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN" and
+    KIS_APP_SECRET != "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN" and
     len(KIS_APP_KEY) > 10
 )
 CACHE_TTL = 5
