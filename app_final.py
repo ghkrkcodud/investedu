@@ -25,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 # ──────────────────────────────────────────────
 KIS_APP_KEY    = "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN"
 KIS_APP_SECRET = "OZFRb067Otn8ww6y2wU1PdiNSaVkbBKrF6tc/tmzLKXsR6XD2sIoqBz5/RYbPJyu8PPGOmtDn5QggYBMbj3lSr47Qwi9n04Q9c00yk4DbGw/L90kSCBQxj2Oujz6TG+yIKkRaiDf4hKT7I+6at9i6qgVY7kEgjtczuRbwEk2hiv3Vaty/u4="
-KIS_BASE_URL   = "https://openapi.koreainvestment.com:9443"
+KIS_BASE_URL   = "https://openapivts.koreainvestment.com:29443"
 _KIS_ENABLED = (
     KIS_APP_KEY != "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN" and
     KIS_APP_SECRET != "OZFRb067Otn8ww6y2wU1PdiNSaVkbBKrF6tc/tmzLKXsR6XD2sIoqBz5/RYbPJyu8PPGOmtDn5QggYBMbj3lSr47Qwi9n04Q9c00yk4DbGw/L90kSCBQxj2Oujz6TG+yIKkRaiDf4hKT7I+6at9i6qgVY7kEgjtczuRbwEk2hiv3Vaty/u4=" and
