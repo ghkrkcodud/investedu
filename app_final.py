@@ -24,13 +24,13 @@ from concurrent.futures import ThreadPoolExecutor
 # ★ KIS API 설정
 # ──────────────────────────────────────────────
 KIS_APP_KEY    = "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN"
-KIS_APP_SECRET = "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN"
+KIS_APP_SECRET = "OZFRb067Otn8ww6y2wU1PdiNSaVkbBKrF6tc/tmzLKXsR6XD2sIoqBz5/RYbPJyu8PPGOmtDn5QggYBMbj3lSr47Qwi9n04Q9c00yk4DbGw/L90kSCBQxj2Oujz6TG+yIKkRaiDf4hKT7I+6at9i6qgVY7kEgjtczuRbwEk2hiv3Vaty/u4="
 KIS_BASE_URL   = "https://openapivts.koreainvestment.com:29443"
 # KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"  # 실전
 
 _KIS_ENABLED = (
     KIS_APP_KEY != "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN" and
-    KIS_APP_SECRET != "PSUPYNNrDFefJLKC7zPWsnZkFgug2qWtFvMN" and
+    KIS_APP_SECRET != "OZFRb067Otn8ww6y2wU1PdiNSaVkbBKrF6tc/tmzLKXsR6XD2sIoqBz5/RYbPJyu8PPGOmtDn5QggYBMbj3lSr47Qwi9n04Q9c00yk4DbGw/L90kSCBQxj2Oujz6TG+yIKkRaiDf4hKT7I+6at9i6qgVY7kEgjtczuRbwEk2hiv3Vaty/u4=" and
     len(KIS_APP_KEY) > 10
 )
 CACHE_TTL = 5
