@@ -23,15 +23,14 @@ from concurrent.futures import ThreadPoolExecutor
 # ──────────────────────────────────────────────
 # ★ KIS API 설정
 # ──────────────────────────────────────────────
-import streamlit as st
-
-KIS_APP_KEY    = st.secrets.get("KIS_APP_KEY", "")
-KIS_APP_SECRET = st.secrets.get("KIS_APP_SECRET", "")
-KIS_BASE_URL   = st.secrets.get("KIS_BASE_URL", "https://openapivts.koreainvestment.com:29443")
+KIS_APP_KEY    = "여기에_앱키_입력"
+KIS_APP_SECRET = "여기에_앱시크릿_입력"
+KIS_BASE_URL   = "https://openapivts.koreainvestment.com:29443"
+# KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"  # 실전
 
 _KIS_ENABLED = (
-    bool(KIS_APP_KEY) and
-    bool(KIS_APP_SECRET) and
+    KIS_APP_KEY != "여기에_앱키_입력" and
+    KIS_APP_SECRET != "여기에_앱시크릿_입력" and
     len(KIS_APP_KEY) > 10
 )
 CACHE_TTL = 5
@@ -299,21 +298,97 @@ def _orderbook(ticker):
     return {"asks":[{"price":price+tick*i,"qty":random.randint(200,8000)} for i in range(1,6)],
             "bids":[{"price":price-tick*i,"qty":random.randint(200,8000)} for i in range(1,6)],"current":price}
 
-def _update_chart(ticker,price):
-    """차트 히스토리 업데이트 (최근 60개 유지)"""
+def _fetch_chart_data(ticker, current_price):
+    """KIS API로 분봉 데이터 조회 (실제) 또는 초기 히스토리 생성 (데모)"""
+    kis = st.session_state.get("kis")
+    if kis:
+        try:
+            res = requests.get(
+                f"{KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+                headers=kis._h("FHKST03010200"),
+                params={
+                    "FID_ETC_CLS_CODE":       "",
+                    "FID_COND_MRKT_DIV_CODE": "J",
+                    "FID_INPUT_ISCD":         ticker,
+                    "FID_INPUT_HOUR_1":       datetime.now().strftime("%H%M%S"),
+                    "FID_PW_DATA_INCU_YN":    "Y",
+                },
+                timeout=10,
+            )
+            items = res.json().get("output2", [])
+            if items and len(items) >= 5:
+                hist = []
+                for item in reversed(items[:120]):
+                    t_str = item.get("stck_bsop_date","") + item.get("stck_cntg_hour","")
+                    try:
+                        t = datetime.strptime(t_str, "%Y%m%d%H%M%S")
+                    except Exception:
+                        continue
+                    p = int(item.get("stck_prpr", current_price))
+                    hist.append({
+                        "time":  t,
+                        "price": p,
+                        "open":  int(item.get("stck_oprc", p)),
+                        "high":  int(item.get("stck_hgpr", p)),
+                        "low":   int(item.get("stck_lwpr", p)),
+                        "close": p,
+                    })
+                if hist:
+                    return hist
+        except Exception:
+            pass
+
+    # 데모: 오늘 장 시작(09:00)부터 현재까지 1분봉 시뮬레이션
+    base  = DEMO_STOCKS.get(ticker, {}).get("base_price", current_price)
+    now   = datetime.now()
+    start = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    total_minutes = max(int((now - start).total_seconds() / 60), 120)
+    total_minutes = min(total_minutes, 390)  # 최대 390분 (6.5시간)
+
+    hist = []
+    p = int(base * random.uniform(0.98, 1.02))
+    for i in range(total_minutes):
+        t   = start + timedelta(minutes=i)
+        op  = p
+        hi  = int(op * random.uniform(1.0, 1.004))
+        lo  = int(op * random.uniform(0.996, 1.0))
+        cl  = max(int(op * random.uniform(0.997, 1.003)), 1)
+        hist.append({"time": t, "price": cl, "open": op, "high": hi, "low": lo, "close": cl})
+        p = cl
+    # 마지막 값을 현재가로 맞춤
+    if hist:
+        hist[-1]["price"] = current_price
+        hist[-1]["close"] = current_price
+    return hist
+
+
+def _update_chart(ticker, price):
+    """차트 히스토리 초기화 또는 업데이트"""
     if ticker not in st.session_state.chart_history:
-        # 초기 히스토리 생성 (60분치 시뮬레이션)
-        base=DEMO_STOCKS.get(ticker,{}).get("base_price",price)
-        hist=[]
-        t=datetime.now()-timedelta(minutes=60)
-        p=int(base*random.uniform(0.97,1.03))
-        for i in range(60):
-            p=max(int(p*random.uniform(0.995,1.005)),1)
-            hist.append({"time":t+timedelta(minutes=i),"price":p})
-        st.session_state.chart_history[ticker]=hist
-    h=st.session_state.chart_history[ticker]
-    h.append({"time":datetime.now(),"price":price})
-    if len(h)>120: st.session_state.chart_history[ticker]=h[-120:]
+        # 처음 접근 시 풍부한 히스토리 생성
+        st.session_state.chart_history[ticker] = _fetch_chart_data(ticker, price)
+    else:
+        h = st.session_state.chart_history[ticker]
+        now = datetime.now()
+        # 마지막 데이터가 1분 이상 지났으면 새 포인트 추가
+        if not h or (now - h[-1]["time"]).total_seconds() >= 60:
+            h.append({
+                "time":  now,
+                "price": price,
+                "open":  price,
+                "high":  price,
+                "low":   price,
+                "close": price,
+            })
+        else:
+            # 현재 분봉 업데이트 (고가/저가 갱신)
+            last = h[-1]
+            last["close"] = price
+            last["price"] = price
+            last["high"]  = max(last["high"], price)
+            last["low"]   = min(last["low"],  price)
+        if len(h) > 400:
+            st.session_state.chart_history[ticker] = h[-400:]
 
 
 # ──────────────────────────────────────────────
@@ -401,29 +476,35 @@ def _render_tv_chart(ticker, chart_type="candle"):
 
     hist = st.session_state.chart_history.get(ticker, [])
     if len(hist) < 2:
-        st.caption("차트 데이터 수집 중...")
+        st.caption("차트 데이터 수집 중... 잠시만 기다려주세요.")
         return
 
-    df = pd.DataFrame(hist)
-    cur_price = df["price"].iloc[-1]
-    first_price = df["price"].iloc[0]
-    is_up = cur_price >= first_price
-    up_color   = "#ef5350"   # 트레이딩뷰 상승색 (빨강)
-    down_color = "#26a69a"   # 트레이딩뷰 하락색 (초록)
-    line_color = up_color if is_up else down_color
+    up_color   = "#ef5350"
+    down_color = "#26a69a"
+
+    cur_price   = hist[-1]["price"]
+    first_price = hist[0]["price"]
+    is_up       = cur_price >= first_price
+    line_color  = up_color if is_up else down_color
 
     if chart_type == "candle":
-        # 1분 단위 OHLC
-        df["group"] = df["time"].dt.floor("1min")
-        ohlc = df.groupby("group")["price"].agg(
-            open="first", high="max", low="min", close="last"
-        ).reset_index()
-        series_data = [
-            {"time": int(row["group"].timestamp()),
-             "open": row["open"], "high": row["high"],
-             "low": row["low"],   "close": row["close"]}
-            for _, row in ohlc.iterrows()
-        ]
+        # OHLC 데이터가 있으면 그대로, 없으면 price로 생성
+        series_data = []
+        seen = set()
+        for row in hist:
+            ts = int(row["time"].timestamp())
+            # 중복 타임스탬프 제거 (LightweightCharts 요구사항)
+            if ts in seen:
+                continue
+            seen.add(ts)
+            series_data.append({
+                "time":  ts,
+                "open":  row.get("open",  row["price"]),
+                "high":  row.get("high",  row["price"]),
+                "low":   row.get("low",   row["price"]),
+                "close": row.get("close", row["price"]),
+            })
+        series_data.sort(key=lambda x: x["time"])
         series_json = json.dumps(series_data)
         series_js = f"""
         const series = chart.addCandlestickSeries({{
@@ -437,18 +518,22 @@ def _render_tv_chart(ticker, chart_type="candle"):
         series.setData({series_json});
         """
     else:
-        # 라인 차트
-        series_data = [
-            {"time": int(row["time"].timestamp()), "value": row["price"]}
-            for _, row in df.iterrows()
-        ]
+        seen = set()
+        series_data = []
+        for row in hist:
+            ts = int(row["time"].timestamp())
+            if ts in seen:
+                continue
+            seen.add(ts)
+            series_data.append({"time": ts, "value": row["price"]})
+        series_data.sort(key=lambda x: x["time"])
         series_json = json.dumps(series_data)
         series_js = f"""
         const series = chart.addAreaSeries({{
-            lineColor:       '{line_color}',
-            topColor:        '{line_color}33',
-            bottomColor:     '{line_color}00',
-            lineWidth:       2,
+            lineColor:              '{line_color}',
+            topColor:               '{line_color}33',
+            bottomColor:            '{line_color}00',
+            lineWidth:              2,
             crosshairMarkerVisible: true,
             crosshairMarkerRadius:  4,
         }});
