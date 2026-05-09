@@ -23,14 +23,14 @@ from concurrent.futures import ThreadPoolExecutor
 # ──────────────────────────────────────────────
 # ★ KIS API 설정
 # ──────────────────────────────────────────────
-KIS_APP_KEY    = "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ"
-KIS_APP_SECRET = "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ"
+KIS_APP_KEY    = "여기에_앱키_입력"
+KIS_APP_SECRET = "여기에_앱시크릿_입력"
 KIS_BASE_URL   = "https://openapivts.koreainvestment.com:29443"
 # KIS_BASE_URL = "https://openapi.koreainvestment.com:9443"  # 실전
 
 _KIS_ENABLED = (
-    KIS_APP_KEY != "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ" and
-    KIS_APP_SECRET != "PSsMiUA7wJEsLYm8rtQRhsXlakm4UoRRhPlZ" and
+    KIS_APP_KEY != "여기에_앱키_입력" and
+    KIS_APP_SECRET != "여기에_앱시크릿_입력" and
     len(KIS_APP_KEY) > 10
 )
 CACHE_TTL = 5
@@ -392,55 +392,181 @@ def _check_missions():
 
 
 # ──────────────────────────────────────────────
-# 8. 주가 차트 생성 함수 (NEW)
+# 8. 주가 차트 — TradingView Lightweight Charts
 # ──────────────────────────────────────────────
-def _make_chart(ticker, chart_type="line"):
-    """주가 차트 생성 — 라인 or 캔들스틱"""
+def _render_tv_chart(ticker, chart_type="candle"):
+    """TradingView Lightweight Charts 렌더링"""
+    import json
+
     hist = st.session_state.chart_history.get(ticker, [])
     if len(hist) < 2:
-        return None
+        st.caption("차트 데이터 수집 중...")
+        return
 
     df = pd.DataFrame(hist)
-    df["time_str"] = df["time"].dt.strftime("%H:%M")
+    cur_price = df["price"].iloc[-1]
+    first_price = df["price"].iloc[0]
+    is_up = cur_price >= first_price
+    up_color   = "#ef5350"   # 트레이딩뷰 상승색 (빨강)
+    down_color = "#26a69a"   # 트레이딩뷰 하락색 (초록)
+    line_color = up_color if is_up else down_color
 
     if chart_type == "candle":
-        # 5분 단위 OHLC 생성
-        df["group"] = df["time"].dt.floor("5min")
+        # 1분 단위 OHLC
+        df["group"] = df["time"].dt.floor("1min")
         ohlc = df.groupby("group")["price"].agg(
             open="first", high="max", low="min", close="last"
         ).reset_index()
-        fig = go.Figure(go.Candlestick(
-            x=ohlc["group"].dt.strftime("%H:%M"),
-            open=ohlc["open"], high=ohlc["high"],
-            low=ohlc["low"],   close=ohlc["close"],
-            increasing_line_color="#ff5858",
-            decreasing_line_color="#4da6ff",
-            name="",
-        ))
-        fig.update_layout(xaxis_rangeslider_visible=False)
+        series_data = [
+            {"time": int(row["group"].timestamp()),
+             "open": row["open"], "high": row["high"],
+             "low": row["low"],   "close": row["close"]}
+            for _, row in ohlc.iterrows()
+        ]
+        series_json = json.dumps(series_data)
+        series_js = f"""
+        const series = chart.addCandlestickSeries({{
+            upColor:         '{up_color}',
+            downColor:       '{down_color}',
+            borderUpColor:   '{up_color}',
+            borderDownColor: '{down_color}',
+            wickUpColor:     '{up_color}',
+            wickDownColor:   '{down_color}',
+        }});
+        series.setData({series_json});
+        """
     else:
         # 라인 차트
-        color = "#ff5858" if df["price"].iloc[-1] >= df["price"].iloc[0] else "#4da6ff"
-        fig = go.Figure(go.Scatter(
-            x=df["time_str"], y=df["price"],
-            mode="lines", line=dict(color=color, width=2),
-            fill="tozeroy",
-            fillcolor=f"rgba({'255,88,88' if color=='#ff5858' else '77,166,255'},0.08)",
-            name="",
-        ))
+        series_data = [
+            {"time": int(row["time"].timestamp()), "value": row["price"]}
+            for _, row in df.iterrows()
+        ]
+        series_json = json.dumps(series_data)
+        series_js = f"""
+        const series = chart.addAreaSeries({{
+            lineColor:       '{line_color}',
+            topColor:        '{line_color}33',
+            bottomColor:     '{line_color}00',
+            lineWidth:       2,
+            crosshairMarkerVisible: true,
+            crosshairMarkerRadius:  4,
+        }});
+        series.setData({series_json});
+        """
 
-    fig.update_layout(
-        margin=dict(t=10, b=10, l=10, r=10),
-        height=220,
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=False, tickfont=dict(size=10), nticks=8),
-        yaxis=dict(showgrid=True, gridcolor="#f0f0f0",
-                   tickformat=",", tickfont=dict(size=10)),
-        showlegend=False,
-        hovermode="x unified",
-    )
-    return fig
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  * {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ background:#131722; }}
+  #tv-chart {{ width:100%; height:380px; }}
+  .toolbar {{
+      display:flex; align-items:center; gap:8px;
+      background:#1e222d; padding:8px 14px;
+      border-bottom:1px solid #2a2e39;
+      font-family:'Noto Sans KR',sans-serif;
+  }}
+  .ticker-name {{ color:#d1d4dc; font-size:15px; font-weight:700; }}
+  .price-now   {{ color:#d1d4dc; font-size:14px; margin-left:8px; font-family:'JetBrains Mono',monospace; }}
+  .price-chg   {{ font-size:13px; margin-left:4px; font-family:'JetBrains Mono',monospace; }}
+  .up   {{ color:{up_color}; }}
+  .down {{ color:{down_color}; }}
+  #legend {{
+      position:absolute; top:44px; left:12px;
+      color:#d1d4dc; font-size:12px; font-family:'JetBrains Mono',monospace;
+      pointer-events:none; z-index:10;
+      background:rgba(19,23,34,0.85); padding:4px 8px; border-radius:4px;
+  }}
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="ticker-name">{ticker}</span>
+  <span class="price-now">{cur_price:,}원</span>
+  <span class="price-chg {'up' if is_up else 'down'}">
+    {'▲' if is_up else '▼'} {abs(cur_price - first_price):,}원
+    ({'+' if is_up else ''}{(cur_price-first_price)/first_price*100:.2f}%)
+  </span>
+</div>
+<div style="position:relative;">
+  <div id="tv-chart"></div>
+  <div id="legend"></div>
+</div>
+<script>
+const chart = LightweightCharts.createChart(document.getElementById('tv-chart'), {{
+    width:  document.getElementById('tv-chart').clientWidth,
+    height: 380,
+    layout: {{
+        background:  {{ color: '#131722' }},
+        textColor:   '#d1d4dc',
+        fontSize:    11,
+        fontFamily:  'JetBrains Mono, monospace',
+    }},
+    grid: {{
+        vertLines:   {{ color: '#1e222d' }},
+        horzLines:   {{ color: '#1e222d' }},
+    }},
+    crosshair: {{
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: {{ color:'#4a90e2', labelBackgroundColor:'#2962ff' }},
+        horzLine: {{ color:'#4a90e2', labelBackgroundColor:'#2962ff' }},
+    }},
+    rightPriceScale: {{
+        borderColor: '#2a2e39',
+        scaleMargins: {{ top:0.1, bottom:0.1 }},
+    }},
+    timeScale: {{
+        borderColor:       '#2a2e39',
+        timeVisible:       true,
+        secondsVisible:    false,
+        tickMarkFormatter: (t) => {{
+            const d = new Date(t * 1000);
+            return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+        }},
+    }},
+    handleScroll:   true,
+    handleScale:    true,
+}});
+
+{series_js}
+
+// 크로스헤어 범례
+const legend = document.getElementById('legend');
+chart.subscribeCrosshairMove(param => {{
+    if (!param.time || !param.seriesData.size) {{
+        legend.style.display = 'none'; return;
+    }}
+    legend.style.display = 'block';
+    const data = param.seriesData.values().next().value;
+    const d = new Date(param.time * 1000);
+    const timeStr = d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+    if (data.open !== undefined) {{
+        legend.innerHTML = timeStr +
+            '  O <span style="color:{up_color}">' + data.open.toLocaleString() + '</span>' +
+            '  H <span style="color:{up_color}">' + data.high.toLocaleString() + '</span>' +
+            '  L <span style="color:{down_color}">' + data.low.toLocaleString() + '</span>' +
+            '  C <span style="color:#d1d4dc">' + data.close.toLocaleString() + '</span>';
+    }} else {{
+        legend.innerHTML = timeStr + '  ' + data.value.toLocaleString() + '원';
+    }}
+}});
+
+// 최신 데이터로 스크롤
+chart.timeScale().scrollToRealTime();
+
+// 반응형 리사이즈
+window.addEventListener('resize', () => {{
+    chart.applyOptions({{ width: document.getElementById('tv-chart').clientWidth }});
+}});
+</script>
+</body>
+</html>
+"""
+    st.components.v1.html(html, height=430, scrolling=False)
 
 
 # ──────────────────────────────────────────────
@@ -563,17 +689,13 @@ def page_trading():
                 f'<div>저가 {_fmt(p["low_price"])}</div><div>거래량 {p["volume"]:,}</div>'
                 f'</div></div></div>',unsafe_allow_html=True)
 
-    # ── 주가 차트 (NEW) ──────────────────────────────
+    # ── 주가 차트 (TradingView 스타일) ────────────────
     st.markdown("##### 📈 주가 차트")
-    chart_col, type_col = st.columns([5,1])
+    _, type_col = st.columns([5, 1])
     with type_col:
-        chart_type = st.radio("차트 유형", ["라인","캔들"], label_visibility="collapsed")
+        chart_type = st.radio("차트 유형", ["캔들", "라인"], label_visibility="collapsed")
     ct = "candle" if chart_type == "캔들" else "line"
-    fig_chart = _make_chart(ticker, ct)
-    if fig_chart:
-        st.plotly_chart(fig_chart, use_container_width=True)
-    else:
-        st.caption("차트 데이터 수집 중...")
+    _render_tv_chart(ticker, ct)
 
     st.divider()
 
